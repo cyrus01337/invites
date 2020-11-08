@@ -21,6 +21,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
+import asyncio
+import json
+from typing import Optional
+
 import discord
 from discord.ext import commands
 
@@ -29,7 +33,8 @@ class Invites(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-        self.cache = {}
+        self.bot.invites = {}
+        self.bot.get_invite = self.get_invite
 
         self.bot.loop.create_task(self.__ainit__())
 
@@ -37,47 +42,18 @@ class Invites(commands.Cog):
         await self.bot.wait_until_ready()
 
         for guild in self.bot.guilds:
-            self.cache[guild.id] = await self.fetch_invites(guild) or {}
+            self.bot.invites[guild.id] = await self.fetch_invites(guild) or {}
 
-    # would this ever be used by end-users?
     def get_invite(self, code: str):
-        for invites in self.cache.values():
+        for invites in self.bot.invites.values():
             find = invites.get(code)
+
             if find:
                 return find
         return None
 
-    def get_invites(self, guild_id: int):
-        return self.cache.get(guild_id, None)
-
-    @commands.command()
-    async def invite_stats(self, ctx):
-        import json
-        cache = {g: {i.code: i.uses for i in invs.values()} for g, invs in self.cache.items()}
-        await ctx.send(json.dumps(cache))
-
-    @commands.Cog.listener()
-    async def on_invite_create(self, invite):
-        # (maybe) send event here
-        print("created invite {invite} in {invite.guild}")
-        cached = self.cache[invite.guild.id]
-
-        if cached:
-            cached[invite.code] = invite
-
-    @commands.Cog.listener()
-    async def on_invite_delete(self, invite):
-        # (maybe) send event here
-        entry_found = self.get_invites(invite.guild.id)
-
-        if entry_found:
-            entry_found.pop(invite.code, None)
-
-    # TODO: to verify redundancy - check if invites are available for
-    # deleted channels
-    @commands.Cog.listener()
-    async def on_guild_channel_delete(self, channel):
-        pass
+    def get_invites(self, guild_id: int) -> Optional[dict[int, str]]:
+        return self.bot.invites.get(guild_id, None)
 
     async def fetch_invites(self, guild):
         try:
@@ -87,24 +63,63 @@ class Invites(commands.Cog):
         else:
             return {invite.code: invite for invite in invites}
 
+    async def schedule_deletion(self, guild):
+        seconds_passed = 0
+
+        while seconds_passed < 300:
+            seconds_passed += 1
+
+            if guild in self.bot.guilds:
+                return
+            await asyncio.sleep(1)
+
+        if guild not in self.bot.guilds:
+            self.bot.invites.pop(guild.id, None)
+
+    @commands.Cog.listener()
+    async def on_invite_create(self, invite):
+        print("created invite {invite} in {invite.guild}")
+        cached = self.bot.invites[invite.guild.id]
+
+        if cached:
+            cached[invite.code] = invite
+
+    @commands.Cog.listener()
+    async def on_invite_delete(self, invite):
+        entry_found = self.get_invites(invite.guild.id)
+        entry_found.pop(invite.code, None)
+
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(self, channel):
+        purging = []
+        invites = self.bot.invites[channel.guild.id]
+
+        for invite in invites.values():
+            if invite.channel == channel:
+                purging.append(invite.code)
+
+        for code in purging:
+            invites.pop(code, None)
+
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
-        # (maybe) send event here
         invites = await self.fetch_invites(guild) or {}
-        self.cache[guild.id] = invites
+        self.bot.invites[guild.id] = invites
 
-    # can be used if not run during guild cache population
-    # spoiler: it's not
-    # async def on_guild_available(self, guild):
-    #     pass
+    async def on_guild_available(self, guild):
+        invites = await guild.invites()
+        cached = self.bot.invites[guild.id]
 
-    # considering - remove cache entry after set time passes in tasks
-    # async def on_guild_remove(self, guild):
-    #     pass
+        for invite in invites:
+            # reload all invites if they have changed in the time that
+            # the guilds were unavailable
+            find = cached.get(invite.code)
 
-    @commands.Cog.listener()
-    async def on_member_join_invite(self, member, invite):
-        print(f"{member} joined {member.guild} with invite {invite}")
+            if find and invite != find:
+                cached[invite.code] = invite
+
+    async def on_guild_remove(self, guild):
+        self.bot.create_task(self.schedule_deletion(guild))
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
@@ -113,11 +128,23 @@ class Invites(commands.Cog):
 
             # we sort the invites to ensure we are comparing A.uses == A.uses
             invites = sorted(invites.values(), key=lambda i: i.code)
-            cached = sorted(self.cache[member.guild.id].values(), key=lambda i: i.code)
+            cached = sorted(self.bot.invites[member.guild.id].values(), key=lambda i: i.code)
 
             # zipping is the easiest way to compare each in order, and they should be the same size? if we do it properly
             for old, new in zip(cached, invites):
                 if old.uses != new.uses:
-                    self.cache[member.guild.id][old.code] = new
-                    self.bot.dispatch("member_join_invite", member, new)
+                    self.bot.invites[member.guild.id][old.code] = new
+                    self.bot.dispatch("invite_update", member, new)
                     break
+
+    @commands.command()
+    async def invite_stats(self, ctx):
+        # PEP8 + same code, more readability
+        cache = {}
+
+        for guild, invites in self.bot.invites.items():
+            cached_invites = cache[guild] = {}
+
+            for invite in invites:
+                cached_invites[invite.code] = invite.uses
+        await ctx.send(json.dumps(cache))
