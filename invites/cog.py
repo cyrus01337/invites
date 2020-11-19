@@ -78,7 +78,7 @@ class Invites(commands.Cog):
 
     @commands.Cog.listener()
     async def on_invite_create(self, invite):
-        print("created invite {invite} in {invite.guild}")
+        print(f"created invite {invite} in {invite.guild}")
         cached = self.bot.invites[invite.guild.id]
 
         if cached:
