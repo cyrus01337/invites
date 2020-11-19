@@ -145,6 +145,10 @@ class Invites(commands.Cog):
         for guild, invites in self.bot.invites.items():
             cached_invites = cache[guild] = {}
 
-            for invite in invites:
+            for invite in invites.values():
                 cached_invites[invite.code] = invite.uses
         await ctx.send(json.dumps(cache))
+
+
+def setup(bot):
+    bot.add_cog(Invites(bot))
