@@ -2,7 +2,7 @@
 ### What is Invites? What does it do?
 Invites is a small, easy to use cog for tracking which invites members use to join!
 
-- Assigns `Bot.get_invite` and `Bot.invites`
+- Upon loading, assigns `Bot.invites`, `Bot.get_invite()`, and `Bot.wait_for_invites()`
     - Noted to reduce conflicts for developers utilising bot variables
 
 - Requirements
