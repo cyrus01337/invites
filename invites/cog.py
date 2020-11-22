@@ -32,9 +32,11 @@ from discord.ext import commands
 class Invites(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._invites_ready = asyncio.Event()
 
         self.bot.invites = {}
         self.bot.get_invite = self.get_invite
+        self.bot.wait_for_invites = self.wait_for_invites
 
         self.bot.loop.create_task(self.__ainit__())
 
@@ -43,6 +45,7 @@ class Invites(commands.Cog):
 
         for guild in self.bot.guilds:
             self.bot.invites[guild.id] = await self.fetch_invites(guild) or {}
+        self._invites_ready.set()
 
     def get_invite(self, code: str):
         for invites in self.bot.invites.values():
@@ -54,6 +57,10 @@ class Invites(commands.Cog):
 
     def get_invites(self, guild_id: int) -> Optional[dict[int, str]]:
         return self.bot.invites.get(guild_id, None)
+
+    async def wait_for_invites(self):
+        if not self._invites_ready.is_set():
+            await self._invites_ready.wait()
 
     async def fetch_invites(self, guild):
         try:
@@ -106,6 +113,7 @@ class Invites(commands.Cog):
         invites = await self.fetch_invites(guild) or {}
         self.bot.invites[guild.id] = invites
 
+    @commands.Cog.listener()
     async def on_guild_available(self, guild):
         invites = await guild.invites()
         cached = self.bot.invites[guild.id]
@@ -118,6 +126,7 @@ class Invites(commands.Cog):
             if find and invite != find:
                 cached[invite.code] = invite
 
+    @commands.Cog.listener()
     async def on_guild_remove(self, guild):
         self.bot.create_task(self.schedule_deletion(guild))
 
