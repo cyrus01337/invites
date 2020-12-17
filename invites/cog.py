@@ -23,6 +23,7 @@ SOFTWARE.
 """
 import asyncio
 import json
+from typing import Dict
 from typing import Optional
 
 import discord
@@ -55,7 +56,7 @@ class Invites(commands.Cog):
                 return find
         return None
 
-    def get_invites(self, guild_id: int) -> Optional[dict[int, str]]:
+    def get_invites(self, guild_id: int) -> Optional[Dict[int, str]]:
         return self.bot.invites.get(guild_id, None)
 
     async def wait_for_invites(self):
