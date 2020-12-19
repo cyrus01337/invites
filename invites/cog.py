@@ -116,16 +116,18 @@ class Invites(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_available(self, guild):
-        invites = await guild.invites()
-        cached = self.bot.invites[guild.id]
+        cached = self.bot.invites.get(guild.id, None)
 
-        for invite in invites:
-            # reload all invites if they have changed in the time that
-            # the guilds were unavailable
-            find = cached.get(invite.code)
+        if cached is not None:
+            invites = await guild.invites()
 
-            if find and invite != find:
-                cached[invite.code] = invite
+            for invite in invites:
+                # reload all invites if they have changed in the time
+                # that the guilds were unavailable
+                find = cached.get(invite.code)
+
+                if find and invite != find:
+                    cached[invite.code] = invite
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild):
@@ -136,11 +138,13 @@ class Invites(commands.Cog):
         invites = await self.fetch_invites(member.guild)
         if invites is not None:
 
-            # we sort the invites to ensure we are comparing A.uses == A.uses
+            # we sort the invites to ensure we are comparing
+            # A.uses == A.uses
             invites = sorted(invites.values(), key=lambda i: i.code)
             cached = sorted(self.bot.invites[member.guild.id].values(), key=lambda i: i.code)
 
-            # zipping is the easiest way to compare each in order, and they should be the same size? if we do it properly
+            # zipping is the easiest way to compare each in order, and
+            # they should be the same size? if we do it properly
             for old, new in zip(cached, invites):
                 if old.uses != new.uses:
                     self.bot.invites[member.guild.id][old.code] = new
