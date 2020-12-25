@@ -37,3 +37,17 @@ def setup(bot):
 
 
 # bot.py
+from discord.ext import commands
+
+bot = commands.Bot(command_prefix="prefix ")
+bot.load_extension("invites")
+bot.load_extension("jishaku")
+
+
+@bot.event
+async def on_ready():
+    print("Loaded", bot.user.name, end="\n\n")
+
+
+# ?tag token - :^)
+bot.run("MjM4NDk0NzU2NTIxMzc3Nzky.CunGFQ.wUILz7z6HoJzVeq6pyHPmVgQgV4")
