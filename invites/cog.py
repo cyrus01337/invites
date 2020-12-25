@@ -48,7 +48,7 @@ class Invites(commands.Cog):
             self.bot.invites[guild.id] = await self.fetch_invites(guild) or {}
         self._invites_ready.set()
 
-    def get_invite(self, code: str):
+    def get_invite(self, code: str) -> Optional[discord.Invite]:
         for invites in self.bot.invites.values():
             find = invites.get(code)
 
@@ -63,7 +63,7 @@ class Invites(commands.Cog):
         if not self._invites_ready.is_set():
             await self._invites_ready.wait()
 
-    async def fetch_invites(self, guild):
+    async def fetch_invites(self, guild) -> Optional[Dict[int, discord.Invite]]:
         try:
             invites = await guild.invites()
         except discord.HTTPException:
@@ -71,7 +71,7 @@ class Invites(commands.Cog):
         else:
             return {invite.code: invite for invite in invites}
 
-    async def schedule_deletion(self, guild):
+    async def _schedule_deletion(self, guild):
         seconds_passed = 0
 
         while seconds_passed < 300:
@@ -87,7 +87,7 @@ class Invites(commands.Cog):
     @commands.Cog.listener()
     async def on_invite_create(self, invite):
         print(f"created invite {invite} in {invite.guild}")
-        cached = self.bot.invites[invite.guild.id]
+        cached = self.bot.invites.get(invite.guild.id, None)
 
         if cached:
             cached[invite.code] = invite
@@ -100,14 +100,15 @@ class Invites(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
         purging = []
-        invites = self.bot.invites[channel.guild.id]
+        invites = self.bot.invites.get(channel.guild.id)
 
-        for invite in invites.values():
-            if invite.channel == channel:
-                purging.append(invite.code)
+        if invites:
+            for invite in invites.values():
+                if invite.channel == channel:
+                    purging.append(invite.code)
 
-        for code in purging:
-            invites.pop(code, None)
+            for code in purging:
+                invites.pop(code, None)
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
@@ -118,7 +119,7 @@ class Invites(commands.Cog):
     async def on_guild_available(self, guild):
         cached = self.bot.invites.get(guild.id, None)
 
-        if cached is not None:
+        if cached:
             invites = await guild.invites()
 
             for invite in invites:
@@ -131,28 +132,29 @@ class Invites(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild):
-        self.bot.create_task(self.schedule_deletion(guild))
+        self.bot.create_task(self._schedule_deletion(guild))
 
     @commands.Cog.listener()
     async def on_member_join(self, member):
         invites = await self.fetch_invites(member.guild)
-        if invites is not None:
 
+        if invites:
             # we sort the invites to ensure we are comparing
             # A.uses == A.uses
             invites = sorted(invites.values(), key=lambda i: i.code)
-            cached = sorted(self.bot.invites[member.guild.id].values(), key=lambda i: i.code)
+            cached = sorted(self.bot.invites[member.guild.id].values(),
+                            key=lambda i: i.code)
 
             # zipping is the easiest way to compare each in order, and
             # they should be the same size? if we do it properly
             for old, new in zip(cached, invites):
-                if old.uses != new.uses:
+                if old.uses < new.uses:
                     self.bot.invites[member.guild.id][old.code] = new
                     self.bot.dispatch("invite_update", member, new)
                     break
 
     @commands.command()
-    async def invite_stats(self, ctx):
+    async def invitestats(self, ctx):
         # PEP8 + same code, more readability
         cache = {}
 
