@@ -1,7 +1,7 @@
 """
 MIT License
 
-Copyright (c) 2020 cyrus01337, XuaTheGrate
+Copyright (c) 2020-2021 cyrus01337, XuaTheGrate
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -23,11 +23,11 @@ SOFTWARE.
 """
 import asyncio
 import json
-from typing import Dict
-from typing import Optional
+from typing import Dict, Optional
+import time
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 
 class Invites(commands.Cog):
@@ -46,7 +46,35 @@ class Invites(commands.Cog):
 
         for guild in self.bot.guilds:
             self.bot.invites[guild.id] = await self.fetch_invites(guild) or {}
-        self._invites_ready.set()
+
+        self.update_invite_expiry.start()
+
+    @tasks.loop()
+    async def delete_expired(self):
+        invites = self.bot.expiring_invites
+        expiry_time = min(invites.keys())
+        inv = invites[expiry_time]
+        await asyncio.sleep(expiry_time - (time.time() - self.bot.last_update))
+        self.delete_invite(inv)
+        self.bot.expiring_invites.pop(expiry_time, None)
+
+    @delete_expired.before_loop
+    async def wait_for_list(self):
+        await self.wait_for_invites()
+
+    @tasks.loop(minutes=29)
+    async def update_invite_expiry(self):
+        flattened = [invite for inner in self.bot.invites.values() for invite in inner.values()]
+        current = time.time()
+        self.bot.expiring_invites = {inv.max_age - current + inv.created_at.timestamp(): inv for inv in flattened if inv.max_age != 0}
+        self.bot.last_update = current
+        if self.update_invite_expiry.current_loop == 0:
+            self._invites_ready.set()
+
+
+    def delete_invite(self, invite: discord.Invite):
+        entry_found = self.get_invites(invite.guild.id)
+        entry_found.pop(invite.code, None)
 
     def get_invite(self, code: str) -> Optional[discord.Invite]:
         for invites in self.bot.invites.values():
@@ -71,7 +99,7 @@ class Invites(commands.Cog):
         else:
             return {invite.code: invite for invite in invites}
 
-    async def _schedule_deletion(self, guild):
+    async def _schedule_deletion(self, guild: discord.Guild):
         seconds_passed = 0
 
         while seconds_passed < 300:
@@ -94,21 +122,17 @@ class Invites(commands.Cog):
 
     @commands.Cog.listener()
     async def on_invite_delete(self, invite):
-        entry_found = self.get_invites(invite.guild.id)
-        entry_found.pop(invite.code, None)
+        self.delete_invite(invite)
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
-        purging = []
         invites = self.bot.invites.get(channel.guild.id)
 
         if invites:
             for invite in invites.values():
-                if invite.channel == channel:
-                    purging.append(invite.code)
-
-            for code in purging:
-                invites.pop(code, None)
+                # changed to use id because of doc warning
+                if invite.channel.id == channel.id:
+                    invites.pop(invite.code)
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
@@ -117,18 +141,9 @@ class Invites(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_available(self, guild):
-        cached = self.bot.invites.get(guild.id, None)
-
-        if cached:
-            invites = await guild.invites()
-
-            for invite in invites:
-                # reload all invites if they have changed in the time
-                # that the guilds were unavailable
-                find = cached.get(invite.code)
-
-                if find and invite != find:
-                    cached[invite.code] = invite
+        # reload all invites if they have changed in the time
+        # that the guilds were unavailable
+        self.bot.invites[guild.id] = self.fetch_invites(guild)
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild):
