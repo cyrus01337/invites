@@ -25,6 +25,7 @@ import asyncio
 import json
 from typing import Dict, Optional
 import time
+import datetime
 
 import discord
 from discord.ext import commands, tasks
@@ -34,6 +35,7 @@ class Invites(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self._invites_ready = asyncio.Event()
+        self._iter_complete = asyncio.Event()
 
         self.bot.invites = {}
         self.bot.get_invite = self.get_invite
@@ -45,32 +47,37 @@ class Invites(commands.Cog):
         await self.bot.wait_until_ready()
 
         for guild in self.bot.guilds:
-            self.bot.invites[guild.id] = await self.fetch_invites(guild) or {}
-
+            self.bot.invites[guild.id] = e = await self.fetch_invites(guild) or {}
         self.update_invite_expiry.start()
+        self.delete_expired.start()
 
     @tasks.loop()
     async def delete_expired(self):
         invites = self.bot.expiring_invites
         expiry_time = min(invites.keys())
         inv = invites[expiry_time]
-        await asyncio.sleep(expiry_time - (time.time() - self.bot.last_update))
+        sleep_time = expiry_time - (int(time.time()) - self.bot.last_update)
+        self.bot.shortest_invite = expiry_time
+        await asyncio.sleep(sleep_time)
         self.delete_invite(inv)
-        self.bot.expiring_invites.pop(expiry_time, None)
+
 
     @delete_expired.before_loop
     async def wait_for_list(self):
         await self.wait_for_invites()
 
-    @tasks.loop(minutes=29)
+    @tasks.loop(minutes=1)
     async def update_invite_expiry(self):
         flattened = [invite for inner in self.bot.invites.values() for invite in inner.values()]
         current = time.time()
-        self.bot.expiring_invites = {inv.max_age - current + inv.created_at.timestamp(): inv for inv in flattened if inv.max_age != 0}
-        self.bot.last_update = current
-        if self.update_invite_expiry.current_loop == 0:
-            self._invites_ready.set()
+        self.bot.expiring_invites = {inv.max_age - int(current - inv.created_at.replace(tzinfo=datetime.timezone.utc).timestamp()): inv for inv in flattened if inv.max_age != 0}
 
+        if self.update_invite_expiry.current_loop == 0:
+            self.bot.last_update = int(current)
+            self._invites_ready.set()
+        elif self.bot.shortest_invite - int(time.time() - self.bot.last_update) > min(self.bot.expiring_invites.keys()):
+            self.delete_expired.restart()
+            self.bot.last_update = int(current)
 
     def delete_invite(self, invite: discord.Invite):
         entry_found = self.get_invites(invite.guild.id)
@@ -84,14 +91,14 @@ class Invites(commands.Cog):
                 return find
         return None
 
-    def get_invites(self, guild_id: int) -> Optional[Dict[int, str]]:
+    def get_invites(self, guild_id: int) -> Optional[Dict[str, discord.Invite]]:
         return self.bot.invites.get(guild_id, None)
 
     async def wait_for_invites(self):
         if not self._invites_ready.is_set():
             await self._invites_ready.wait()
 
-    async def fetch_invites(self, guild) -> Optional[Dict[int, discord.Invite]]:
+    async def fetch_invites(self, guild: discord.Guild) -> Optional[Dict[str, discord.Invite]]:
         try:
             invites = await guild.invites()
         except discord.HTTPException:
@@ -113,7 +120,7 @@ class Invites(commands.Cog):
             self.bot.invites.pop(guild.id, None)
 
     @commands.Cog.listener()
-    async def on_invite_create(self, invite):
+    async def on_invite_create(self, invite: discord.Invite):
         print(f"created invite {invite} in {invite.guild}")
         cached = self.bot.invites.get(invite.guild.id, None)
 
@@ -121,11 +128,11 @@ class Invites(commands.Cog):
             cached[invite.code] = invite
 
     @commands.Cog.listener()
-    async def on_invite_delete(self, invite):
+    async def on_invite_delete(self, invite: discord.Invite):
         self.delete_invite(invite)
 
     @commands.Cog.listener()
-    async def on_guild_channel_delete(self, channel):
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
         invites = self.bot.invites.get(channel.guild.id)
 
         if invites:
@@ -135,22 +142,23 @@ class Invites(commands.Cog):
                     invites.pop(invite.code)
 
     @commands.Cog.listener()
-    async def on_guild_join(self, guild):
+    async def on_guild_join(self, guild: discord.Guild):
         invites = await self.fetch_invites(guild) or {}
         self.bot.invites[guild.id] = invites
 
     @commands.Cog.listener()
-    async def on_guild_available(self, guild):
-        # reload all invites if they have changed in the time
-        # that the guilds were unavailable
-        self.bot.invites[guild.id] = self.fetch_invites(guild)
+    async def on_guild_available(self, guild: discord.Guild):
+        # reload all invites in case they changed during
+        # the time that the guilds were unavailable
+        self.bot.invites[guild.id] = await self.fetch_invites(guild) or {}
+
 
     @commands.Cog.listener()
-    async def on_guild_remove(self, guild):
+    async def on_guild_remove(self, guild: discord.Guild):
         self.bot.create_task(self._schedule_deletion(guild))
 
     @commands.Cog.listener()
-    async def on_member_join(self, member):
+    async def on_member_join(self, member: discord.Member):
         invites = await self.fetch_invites(member.guild)
 
         if invites:
@@ -168,8 +176,8 @@ class Invites(commands.Cog):
                     self.bot.dispatch("invite_update", member, new)
                     break
 
-    @commands.command()
-    async def invitestats(self, ctx):
+    @commands.command(name='invitestats')
+    async def invite_stats(self, ctx):
         # PEP8 + same code, more readability
         cache = {}
 
