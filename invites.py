@@ -176,8 +176,8 @@ class Invites(commands.Cog):
                     self.bot.dispatch("invite_update", member, new)
                     break
 
-    @commands.command(name='invitestats')
-    async def invite_stats(self, ctx):
+    @commands.command()
+    async def invitestats(self, ctx):
         # PEP8 + same code, more readability
         cache = {}
 
