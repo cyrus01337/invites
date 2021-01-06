@@ -23,19 +23,22 @@ SOFTWARE.
 """
 import asyncio
 import datetime
-import json
 import time
 from typing import Dict, Optional
 
 import discord
 from discord.ext import commands, tasks
 
+# poll period in minutes for the
+# update_invite_expiry task
+POLL_PERIOD = 25
+
 
 class Invites(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._invites_ready = asyncio.Event()
-        self._iter_complete = asyncio.Event()
+        self._list_filled = asyncio.Event()
 
         self.bot.invites = {}
         self.bot.get_invite = self.get_invite
@@ -44,49 +47,105 @@ class Invites(commands.Cog):
         self.bot.loop.create_task(self.__ainit__())
 
     async def __ainit__(self):
+        # wait until the bots internal cache is ready
         await self.bot.wait_until_ready()
 
         for guild in self.bot.guilds:
-            self.bot.invites[guild.id] = e = await self.fetch_invites(guild) or {}
+            self.bot.invites[guild.id] = await self.fetch_invites(guild) or {}
         self.update_invite_expiry.start()
         self.delete_expired.start()
 
     @tasks.loop()
     async def delete_expired(self):
         invites = self.bot.expiring_invites
-        expiry_time = min(invites.keys())
-        inv = invites[expiry_time]
-        sleep_time = expiry_time - (int(time.time()) - self.bot.last_update)
-        self.bot.shortest_invite = expiry_time
-        await asyncio.sleep(sleep_time)
-        self.delete_invite(inv)
+        if not invites:
+            # cancel the task until the list gets filled once again
+            # we have to access a protected member because we are
+            # using ext.tasks
+            def restart_when_list_filled(fut):
+                self.delete_expired._task.remove_done_callback(restart_when_list_filled)
+
+                async def wait():
+                    await self._list_filled.wait()
+                    self.delete_expired.start()
+
+                self.bot.loop.create_task(wait())
+
+            # dont want to try and cancel the task if we
+            # are already cancelling so we check that
+            # the task is not already being cancelled
+            if self.delete_expired._can_be_cancelled():
+                self.delete_expired._task.add_done_callback(restart_when_list_filled)
+                self.delete_expired.cancel()
+        # if the list is populated
+        else:
+            expiry_time = min(invites.keys())
+            inv = invites[expiry_time]
+            sleep_time = expiry_time - (int(time.time()) - self.bot.last_update)
+            self.bot.shortest_invite = expiry_time
+            await asyncio.sleep(sleep_time)
+            # delete invite from cache
+            self.delete_invite(inv)
+            # delete invite from expiring invite list
+            self.bot.expiring_invites.pop(expiry_time, None)
 
     @delete_expired.before_loop
     async def wait_for_list(self):
         await self.wait_for_invites()
 
-    @tasks.loop(minutes=25)
+    @tasks.loop(minutes=POLL_PERIOD)
     async def update_invite_expiry(self):
+        # check to see if it is set
+        # because on the first iteration
+        # it will not be
+        if self._list_filled.is_set():
+            self._list_filled.clear()
+        # flatten all the invites in the cache into one single list
         flattened = [invite for inner in self.bot.invites.values() for invite in inner.values()]
+        # get current posix time
         current = time.time()
         self.bot.expiring_invites = {
-            inv.max_age - int(current - inv.created_at.replace(tzinfo=datetime.timezone.utc).timestamp()): inv for inv
-            in flattened if inv.max_age != 0}
+            inv.max_age - int(current - inv.created_at.replace(tzinfo=datetime.timezone.utc).timestamp()): inv
+            for inv in flattened if inv.max_age != 0}
+
+        exists = True
+
+        # update self.bot.shortest_invite
+        # so we can compare it with invites
+        # that were just created
+        try:  # self.bot.shortest_invite might not exist
+            self.bot.shortest_invite = self.bot.shortest_invite - int(time.time() - self.bot.last_update)
+        except AttributeError:
+            exists = False
 
         if self.update_invite_expiry.current_loop == 0:
             # this needs to be updated before
             # setting self._invites_ready
             self.bot.last_update = int(current)
             self._invites_ready.set()
-        elif self.bot.shortest_invite - int(time.time() - self.bot.last_update) > min(self.bot.expiring_invites.keys()):
+        # we need to check that expiring_invites
+        # is truthy otherwise this conditional will
+        # raise an error because we passed an
+        # empty sequence to min()
+        elif exists and self.bot.expiring_invites and self.bot.shortest_invite > min(self.bot.expiring_invites.keys()):
             # this conditional needs to run before we
             # update self._last_update
             self.delete_expired.restart()
             self.bot.last_update = int(current)
         else:
+            # the last update needs to be updated regardless or
+            # it will cause updates getting deleted from the cache
+            # too early because the expiring_invites list will be
+            # updated with new times but delete_expired will think
+            # that the last update was ages ago and will deduct a huge
+            # amount of seconds from the expiry time to form the sleep_time
             self.bot.last_update = int(current)
+        # set the event so if the delete_expired
+        # task is cancelled it will start again
+        self._list_filled.set()
 
-    def delete_invite(self, invite: discord.Invite):
+
+    def delete_invite(self, invite: discord.Invite) -> None:
         entry_found = self.get_invites(invite.guild.id)
         entry_found.pop(invite.code, None)
 
@@ -101,7 +160,7 @@ class Invites(commands.Cog):
     def get_invites(self, guild_id: int) -> Optional[Dict[str, discord.Invite]]:
         return self.bot.invites.get(guild_id, None)
 
-    async def wait_for_invites(self):
+    async def wait_for_invites(self) -> None:
         if not self._invites_ready.is_set():
             await self._invites_ready.wait()
 
@@ -113,7 +172,7 @@ class Invites(commands.Cog):
         else:
             return {invite.code: invite for invite in invites}
 
-    async def _schedule_deletion(self, guild: discord.Guild):
+    async def _schedule_deletion(self, guild: discord.Guild) -> None:
         seconds_passed = 0
 
         while seconds_passed < 300:
@@ -127,7 +186,7 @@ class Invites(commands.Cog):
             self.bot.invites.pop(guild.id, None)
 
     @commands.Cog.listener()
-    async def on_invite_create(self, invite: discord.Invite):
+    async def on_invite_create(self, invite: discord.Invite) -> None:
         print(f"created invite {invite} in {invite.guild}")
         cached = self.bot.invites.get(invite.guild.id, None)
 
@@ -135,11 +194,11 @@ class Invites(commands.Cog):
             cached[invite.code] = invite
 
     @commands.Cog.listener()
-    async def on_invite_delete(self, invite: discord.Invite):
+    async def on_invite_delete(self, invite: discord.Invite) -> None:
         self.delete_invite(invite)
 
     @commands.Cog.listener()
-    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
+    async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel) -> None:
         invites = self.bot.invites.get(channel.guild.id)
 
         if invites:
@@ -149,22 +208,22 @@ class Invites(commands.Cog):
                     invites.pop(invite.code)
 
     @commands.Cog.listener()
-    async def on_guild_join(self, guild: discord.Guild):
+    async def on_guild_join(self, guild: discord.Guild) -> None:
         invites = await self.fetch_invites(guild) or {}
         self.bot.invites[guild.id] = invites
 
     @commands.Cog.listener()
-    async def on_guild_available(self, guild: discord.Guild):
+    async def on_guild_available(self, guild: discord.Guild) -> None:
         # reload all invites in case they changed during
         # the time that the guilds were unavailable
         self.bot.invites[guild.id] = await self.fetch_invites(guild) or {}
 
     @commands.Cog.listener()
-    async def on_guild_remove(self, guild: discord.Guild):
+    async def on_guild_remove(self, guild: discord.Guild) -> None:
         self.bot.create_task(self._schedule_deletion(guild))
 
     @commands.Cog.listener()
-    async def on_member_join(self, member: discord.Member):
+    async def on_member_join(self, member: discord.Member) -> None:
         invites = await self.fetch_invites(member.guild)
 
         if invites:
@@ -182,18 +241,46 @@ class Invites(commands.Cog):
                     self.bot.dispatch("invite_update", member, new)
                     break
 
-    @commands.command(name='invitestats')
-    async def invite_stats(self, ctx):
+    # if you want to use this command you
+    # might want to make a error handler
+    # to handle commands.NoPrivateMessage
+    @commands.guild_only()
+    @commands.command()
+    async def invitestats(self, ctx):
+        """Displays the top 10 most used invites in the guild."""
         # PEP8 + same code, more readability
-        cache = {}
+        invites = self.bot.invites.get(ctx.guild.id, None)
 
-        for guild, invites in self.bot.invites.items():
-            cached_invites = cache[guild] = {}
+        # falsey check for None or {}
+        if not invites:
+            # if there is no invites send this information
+            # in an embed and return
+            embed = discord.Embed(colour=discord.Colour.red(), description='No invites found...')
+            await ctx.send(embed=embed)
+            return
 
-            for invite in invites.values():
-                cached_invites[invite.code] = invite.uses
-        await ctx.send(json.dumps(cache))
+        # if you got here there are invites in the cache
+        embed = discord.Embed(colour=discord.Colour.green(), title='Most used invites')
+        # sort the invites by the amount of uses
+        # by default this would make it in increasing
+        # order so we pass True to the reverse kwarg
+        invites = sorted(invites.values(), key=lambda i: i.uses, reverse=True)
+        # if there are 10 or more invites in the cache we will
+        # display 10 invites, otherwise display the amount
+        # of invites
+        amount = 10 if len(invites) >= 10 else len(invites)
+        # list comp on the sorted invites and then
+        # join it into one string with str.join
+        description = '\n'.join([f'{i + 1}. {invites[i].code} - {invites[i].uses}' for i in range(amount)])
+        embed.description = description
+        # if there are more than 10 invites
+        # add a footer saying how many more
+        # invites there are
+        if amount > 10:
+            embed.set_footer(text=f'There are {len(invites) - 10} more invites in this guild.')
+        await ctx.send(embed=embed)
 
 
-def setup(bot):
+
+def setup(bot: commands.Bot):
     bot.add_cog(Invites(bot))
