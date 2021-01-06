@@ -31,6 +31,10 @@ from discord.ext import commands, tasks
 
 # poll period in minutes for the
 # update_invite_expiry task
+# if you want to change this
+# to use seconds you need
+# to update the kwarg in the
+# decorator too
 POLL_PERIOD = 25
 
 
