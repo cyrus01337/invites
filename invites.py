@@ -22,10 +22,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 import asyncio
-import json
-from typing import Dict, Optional
-import time
 import datetime
+import json
+import time
+from typing import Dict, Optional
 
 import discord
 from discord.ext import commands, tasks
@@ -61,22 +61,29 @@ class Invites(commands.Cog):
         await asyncio.sleep(sleep_time)
         self.delete_invite(inv)
 
-
     @delete_expired.before_loop
     async def wait_for_list(self):
         await self.wait_for_invites()
 
-    @tasks.loop(minutes=1)
+    @tasks.loop(minutes=25)
     async def update_invite_expiry(self):
         flattened = [invite for inner in self.bot.invites.values() for invite in inner.values()]
         current = time.time()
-        self.bot.expiring_invites = {inv.max_age - int(current - inv.created_at.replace(tzinfo=datetime.timezone.utc).timestamp()): inv for inv in flattened if inv.max_age != 0}
+        self.bot.expiring_invites = {
+            inv.max_age - int(current - inv.created_at.replace(tzinfo=datetime.timezone.utc).timestamp()): inv for inv
+            in flattened if inv.max_age != 0}
 
         if self.update_invite_expiry.current_loop == 0:
+            # this needs to be updated before
+            # setting self._invites_ready
             self.bot.last_update = int(current)
             self._invites_ready.set()
         elif self.bot.shortest_invite - int(time.time() - self.bot.last_update) > min(self.bot.expiring_invites.keys()):
+            # this conditional needs to run before we
+            # update self._last_update
             self.delete_expired.restart()
+            self.bot.last_update = int(current)
+        else:
             self.bot.last_update = int(current)
 
     def delete_invite(self, invite: discord.Invite):
@@ -151,7 +158,6 @@ class Invites(commands.Cog):
         # reload all invites in case they changed during
         # the time that the guilds were unavailable
         self.bot.invites[guild.id] = await self.fetch_invites(guild) or {}
-
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild: discord.Guild):
