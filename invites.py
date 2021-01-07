@@ -59,7 +59,7 @@ class Invites(commands.Cog):
         self.update_invite_expiry.start()
         self.delete_expired.start()
 
-    async def cog_unload(self):
+    def cog_unload(self):
         self.update_invite_expiry.cancel()
         self.delete_expired.cancel()
 
