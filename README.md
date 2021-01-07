@@ -2,7 +2,7 @@
 ### What is Invites? What does it do?
 Invites is a small, easy to use cog for tracking which invites joining members use! It relies on a number of attributes added to your Bot for convenience as well as `on_invite_update` - a new, custom event that is dispatched
 
-- Upon loading, assigns `Bot.invites`, `Bot.expiring_invites`, `Bot.shortest_invite`, `Bot.get_invite()` and `Bot.wait_for_invites()`
+- Upon loading, assigns `Bot.invites`, `Bot.expiring_invites`, `Bot.shortest_invite`, `Bot.last_update`, `Bot.get_invite()` and `Bot.wait_for_invites()`
     - This is noted to reduce conflicts for developers utilising bot variables
 
 - Requirements
