@@ -63,11 +63,11 @@ class Invites(commands.Cog):
     async def delete_expired(self):
         invites = self.bot.expiring_invites
         if not invites:
-            # cancel the task until the list gets filled once again
-            # we have to access a protected member because we are
-            # using ext.tasks
+            # get the internal task
+            task = self.delete_expired.get_task()
+
             def restart_when_list_filled(fut):
-                self.delete_expired._task.remove_done_callback(restart_when_list_filled)
+                task.remove_done_callback(restart_when_list_filled)
 
                 async def wait():
                     await self._list_filled.wait()
@@ -75,11 +75,11 @@ class Invites(commands.Cog):
 
                 self.bot.loop.create_task(wait())
 
-            # dont want to try and cancel the task if we
+            # don't want to try and cancel the task if we
             # are already cancelling so we check that
             # the task is not already being cancelled
-            if self.delete_expired._can_be_cancelled():
-                self.delete_expired._task.add_done_callback(restart_when_list_filled)
+            if not self.delete_expired.is_being_cancelled():
+                task.add_done_callback(restart_when_list_filled)
                 self.delete_expired.cancel()
         # if the list is populated
         else:
@@ -146,8 +146,8 @@ class Invites(commands.Cog):
             self.bot.last_update = int(current)
         # set the event so if the delete_expired
         # task is cancelled it will start again
-        self._list_filled.set()
-
+        if self.bot.expiring_invites:
+            self._list_filled.set()
 
     def delete_invite(self, invite: discord.Invite) -> None:
         entry_found = self.get_invites(invite.guild.id)
