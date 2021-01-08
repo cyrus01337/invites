@@ -59,6 +59,11 @@ class Invites(commands.Cog):
         self.update_invite_expiry.start()
         self.delete_expired.start()
 
+    def cog_unload(self):
+        self.update_invite_expiry.cancel()
+        if not self.delete_expired.done():
+            self.delete_expired.cancel()
+
     @tasks.loop()
     async def delete_expired(self):
         invites = self.bot.expiring_invites
