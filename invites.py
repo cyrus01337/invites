@@ -42,7 +42,7 @@ class Invites(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._invites_ready = asyncio.Event()
-        self._list_filled = asyncio.Event()
+        self._dict_filled = asyncio.Event()
 
         self.bot.invites = {}
         self.bot.get_invite = self.get_invite
@@ -65,37 +65,21 @@ class Invites(commands.Cog):
 
     @tasks.loop()
     async def delete_expired(self):
+        if not self.bot.expiring_invites:
+            await self._dict_filled.wait()
         invites = self.bot.expiring_invites
-        if not invites:
-            # cancel the task until the list gets filled once again
-            # we have to access a protected member because we are
-            # using ext.tasks
-            def restart_when_list_filled(fut):
-                self.delete_expired._task.remove_done_callback(restart_when_list_filled)
-
-                async def wait():
-                    await self._list_filled.wait()
-                    self.delete_expired.start()
-
-                self.bot.loop.create_task(wait())
-
-            # dont want to try and cancel the task if we
-            # are already cancelling so we check that
-            # the task is not already being cancelled
-            if self.delete_expired._can_be_cancelled():
-                self.delete_expired._task.add_done_callback(restart_when_list_filled)
-                self.delete_expired.cancel()
-        # if the list is populated
-        else:
-            expiry_time = min(invites.keys())
-            inv = invites[expiry_time]
-            sleep_time = expiry_time - (int(time.time()) - self.bot.last_update)
-            self.bot.shortest_invite = expiry_time
-            await asyncio.sleep(sleep_time)
-            # delete invite from cache
-            self.delete_invite(inv)
-            # delete invite from expiring invite list
-            self.bot.expiring_invites.pop(expiry_time, None)
+        expiry_time = min(invites.keys())
+        inv = invites[expiry_time]
+        sleep_time = expiry_time - (int(time.time()) - self.bot.last_update)
+        self.bot.shortest_invite = expiry_time
+        await asyncio.sleep(sleep_time)
+        # delete invite from cache
+        self.delete_invite(inv)
+        # delete invite from expiring invite list
+        # bot.shortest_invite is updated in update_invite_expiry
+        # and since the expiring_invites dict is also updated
+        # so the time goes down we use this instead
+        self.bot.expiring_invites.pop(self.bot.shortest_invite, None)
 
     @delete_expired.before_loop
     async def wait_for_list(self):
@@ -103,11 +87,6 @@ class Invites(commands.Cog):
 
     @tasks.loop(minutes=POLL_PERIOD)
     async def update_invite_expiry(self):
-        # check to see if it is set
-        # because on the first iteration
-        # it will not be
-        if self._list_filled.is_set():
-            self._list_filled.clear()
         # flatten all the invites in the cache into one single list
         flattened = [invite for inner in self.bot.invites.values() for invite in inner.values()]
         # get current posix time
@@ -150,8 +129,9 @@ class Invites(commands.Cog):
             self.bot.last_update = int(current)
         # set the event so if the delete_expired
         # task is cancelled it will start again
-        self._list_filled.set()
-
+        if self.bot.expiring_invites:
+            self._dict_filled.set()
+            self._dict_filled.clear()
 
     def delete_invite(self, invite: discord.Invite) -> None:
         entry_found = self.get_invites(invite.guild.id)
