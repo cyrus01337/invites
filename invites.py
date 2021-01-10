@@ -210,7 +210,7 @@ class Invites(commands.Cog):
         invites = self.bot.invites.get(channel.guild.id)
 
         if invites:
-            for invite in invites.values():
+            for invite in list(invites.values()):
                 # changed to use id because of doc warning
                 if invite.channel.id == channel.id:
                     invites.pop(invite.code)
