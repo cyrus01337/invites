@@ -228,7 +228,7 @@ class Invites(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild: discord.Guild) -> None:
-        self.bot.create_task(self._schedule_deletion(guild))
+        self.bot.loop.create_task(self._schedule_deletion(guild))
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
