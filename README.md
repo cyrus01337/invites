@@ -12,12 +12,19 @@ Invites is a small, easy to use cog for tracking which invites joining members u
 
 ### How do I use this?
 1. Click on `invites.py` in the repository's file directory
+
 ![Screenshot](https://i.imgur.com/SsA8hQa.png)
+
 2. Right-click the "Raw" button and click the "Save link as..." option
+
 ![Screenshot](https://i.imgur.com/kEFjCRj.png)
+
 3. Save it within your cogs directory or wherever you store/load your cogs
+
 ![Screenshot](https://i.imgur.com/Q4I84pz.png)
-4. Code away using the newly implemented features!
+
+4. Code away using the newly implemented features\!
+
 **NOTE: REMEMBER TO LOAD THE COG TO BE ABLE TO USE IT'S FEATURES**
 
 ### There is a problem with this, how can I report it?
@@ -29,4 +36,4 @@ There are two ways to report a problem:
 I (Cyrus) *personally* prefer and recommend the former but if I am around in **#help** or **#testing** then feel free to ping me in those respective channels.
 
 ### Is there any way for me to contribute?
-Thank you in advance if you do choose to contribute - I am open to constructive criticism and will happily review any PRs sent to this repo!
+Thank you in advance if you do choose to contribute - I am open to constructive criticism and will happily review any PRs sent to this repo\!
