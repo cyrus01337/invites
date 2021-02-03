@@ -37,3 +37,6 @@ I (Cyrus) *personally* prefer and recommend the former but if I am around in **#
 
 ### Is there any way for me to contribute?
 Thank you in advance if you do choose to contribute - I am open to constructive criticism and will happily review any PRs sent to this repo\!
+
+### Credits
+Huge thanks to ["Dog"](https://github.com/mysistersbrother) for contributing so many improvements and optimisations, this repo is only growing thanks to you! :)
