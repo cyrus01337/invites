@@ -11,6 +11,8 @@ Invites is a small, easy to use cog for tracking which invites joining members u
     - `manage_guild` and `manage_channels` permissions
 
 ### How do I use this?
+The recommended method is to follow the instructions below to plug and load the cog into your bot, then in another cog/file you listen to `on_invite_update` and manipulate the resources given to you. The event grants access to 2 parameters: the Member that was invited and the Invite that was assumedly used, example [here](https://github.com/cyrus01337/invites/blob/master/examples/invite_rewards.py).
+
 1. Click on `invites.py` in the repository's file directory
 
 ![Screenshot](https://i.imgur.com/SsA8hQa.png)
