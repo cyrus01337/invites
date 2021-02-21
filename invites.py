@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 import asyncio
+import contextlib
 import datetime
 import time
 from typing import Dict, Optional
@@ -55,7 +56,13 @@ class Invites(commands.Cog):
         await self.bot.wait_until_ready()
 
         for guild in self.bot.guilds:
-            self.bot.invites[guild.id] = await self.fetch_invites(guild) or {}
+            fetched = await self.fetch_invites(guild)
+            invites = self.bot.invites[guild.id] = fetched or {}
+
+            if "VANITY_URL" in guild.features:
+                with contextlib.suppress(discord.Forbidden):
+                    vanity = await guild.vanity_invite()
+                    invites["VANITY"] = invites[vanity.code] = vanity
         self.update_invite_expiry.start()
         self.delete_expired.start()
 
