@@ -41,4 +41,5 @@ I (Cyrus) *personally* prefer and recommend the former but if I am around in **#
 Thank you in advance if you do choose to contribute - I am open to constructive criticism and will happily review any PRs sent to this repo\!
 
 ### Credits
+Thanks to [Maya](https://github.com/XuaTheGrate) for being the initial contributor to this idea I had in mind, this repo would not be here without your ideas and expertise! <3
 Huge thanks to ["Dog"](https://github.com/mysistersbrother) for contributing so many improvements and optimisations, this repo is only growing thanks to you! :)
