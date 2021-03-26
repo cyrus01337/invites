@@ -60,7 +60,7 @@ class Invites(commands.Cog):
             invites = self.bot.invites[guild.id] = fetched or {}
 
             if "VANITY_URL" in guild.features:
-                with contextlib.suppress(discord.Forbidden):
+                with contextlib.suppress(discord.HTTPException):
                     vanity = await guild.vanity_invite()
                     invites["VANITY"] = invites[vanity.code] = vanity
         self.update_invite_expiry.start()
