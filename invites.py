@@ -266,7 +266,7 @@ class Invites(commands.Cog):
         amount = 10 if len(invites) >= 10 else len(invites)
         # list comp on the sorted invites and then
         # join it into one string with str.join
-        description = '\n'.join([f'{i + 1}. {invites[i].code} - {invites[i].uses}' for i in range(amount)])
+        description = '\n'.join([f'{i + 1}. {invites[i].inviter.mention} {invites[i].code} - {invites[i].uses}' for i in range(amount)])
         embed.description = description
         # if there are more than 10 invites
         # add a footer saying how many more
